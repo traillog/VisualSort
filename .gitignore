@@ -1,0 +1,17 @@
+*.tlog
+*.obj
+*.pdb
+*.ipch
+*.log
+*.suo
+*.user
+*.lastbuildstate
+*.ilk
+*.idb
+*.sdf
+Debug/VisualSort.exe.embed.manifest
+Debug/VisualSort.exe.embed.manifest.res
+Debug/VisualSort.exe.intermediate.manifest
+Debug/VisualSort_manifest.rc
+Release/VisualSort.exe.intermediate.manifest
+VisualSort.opensdf
