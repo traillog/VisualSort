@@ -5,6 +5,7 @@
 #include <windows.h>
 #include <stdio.h>
 #include <process.h>
+#include <time.h>
 
 // Child windows IDs
 #define     ID_SORTWND              0
@@ -24,16 +25,19 @@
 // Proprietary messages
 #define     WM_ADDR_SET             ( WM_USER + 0 )
 #define     WM_RST_SET              ( WM_USER + 1 )
+#define     WM_SORT_DONE            ( WM_USER + 2 )
 
 // Board config and size of items set
-#define     BRD_SIZE_SQ     10      // Board size in squares (logical units)
+#define     BRD_SIZE_SQ     1000      // Board size in squares (logical units)
 
 typedef struct paramsTag
 {
      HANDLE hEvent;
+     HWND   hMainWnd;
      HWND   hSortWnd;
      BOOL   bContinue;
-     INT    iStatus;
+     int    iStatus;
+     int*   pElemsSet;
 } PARAMS, *PPARAMS;
 
 LRESULT CALLBACK WndProc( HWND, UINT, WPARAM, LPARAM );
@@ -47,6 +51,8 @@ void shuffleSet( int* elemsSet );
 void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val );
 void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
 void drawGrid( HDC hdc );
+void selectionSort( HWND hSortWnd, int* elemsSet );
+void swap( int* elemsSet, int i, int j );
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR szCmdLine, int iCmdShow )
@@ -149,6 +155,9 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
             hwnd, ( HMENU )ID_RSTBTN,
             ( ( LPCREATESTRUCT )lParam )->hInstance, NULL );
 
+        // Seed the rand function
+        srand( ( unsigned int )time( NULL ) );
+
         // Initialize set
         fillSet( itemsSet );
         shuffleSet( itemsSet );
@@ -158,9 +167,11 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
 
         // Set up worker thread's params
         params.hEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+        params.hMainWnd = hwnd;
         params.hSortWnd = hSortWnd;
         params.bContinue = FALSE;
         params.iStatus = STATUS_READY;
+        params.pElemsSet = itemsSet;
 
         // Start worker thread (paused)
         _beginthread( Thread, 0, &params );
@@ -256,6 +267,17 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
         }
         return 0;
 
+    case WM_SORT_DONE :
+        // Sort done
+        params.iStatus = STATUS_READY;
+        params.bContinue = FALSE;
+        EnableWindow( hRstBtn, TRUE );
+        SetWindowText( hStrPauBtn, TEXT( "Start" ) );
+
+        // Show end results
+        InvalidateRect( hwnd, NULL, TRUE );
+        return 0;
+
     case WM_DESTROY :
         // Clean up
         params.bContinue = FALSE;
@@ -300,7 +322,7 @@ LRESULT CALLBACK WndProcSort( HWND hwnd, UINT message,
         hdc = BeginPaint( hwnd, &ps );
         setUpMappingMode( hdc, cxClient, cyClient );
         drawSet( hdc, redPen, redBrush, ptrItemsSet );
-        drawGrid( hdc );
+//        drawGrid( hdc );
         EndPaint( hwnd, &ps );
         return 0 ;
 
@@ -333,6 +355,11 @@ void Thread( PVOID pvoid )
     {
         WaitForSingleObject( pparams->hEvent, INFINITE );
 
+        // Sort set
+        selectionSort( pparams->hSortWnd, pparams->pElemsSet );
+
+        // Report sorting done
+        SendMessage( pparams->hMainWnd, WM_SORT_DONE, 0, 0 );
     }
 }
 
@@ -428,4 +455,41 @@ void drawGrid( HDC hdc )
     // so all corners of the grid are cover
     MoveToEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
     LineTo( hdc, BRD_SIZE_SQ, 0 );
+}
+
+void selectionSort( HWND hSortWnd, int* elemsSet )
+{
+    int i, j;   // Set indices
+    int sml;    // Smallest item found in current pass
+
+    // Loop over array size - 1 items
+    for ( i = 0; i < BRD_SIZE_SQ - 1; i++ )
+    {
+        sml = i;    // Initialize smallest elem found
+
+        // Loop over remaining array
+        for ( j = i + 1; j < BRD_SIZE_SQ; j++ )
+        {
+            if ( elemsSet[ j ] < elemsSet[ sml ] )
+            {
+                sml = j;
+            }
+        }
+
+        // Swap smallest and current analysed item
+        swap( elemsSet, i, sml );
+
+        // Show current status ---> Must be improved to avoid flickering !!!!
+        InvalidateRect( hSortWnd, NULL, TRUE );
+        UpdateWindow( hSortWnd );
+    }
+}
+
+void swap( int* elemsSet, int i, int j )
+{
+    int tmp = 0;
+
+    tmp = elemsSet[ i ];
+    elemsSet[ i ] = elemsSet[ j ];
+    elemsSet[ j ] = tmp;
 }
