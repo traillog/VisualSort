@@ -6,19 +6,22 @@
 #include <stdio.h>
 #include <process.h>
 
-#define         ID_SORTWND              0
-#define         ID_STRPAUBTN            1
-#define         ID_RSTBTN               2
+#define     ID_SORTWND              0
+#define     ID_STRPAUBTN            1
+#define     ID_RSTBTN               2
 
-#define         BTNS_H                  40
-#define         BTNS_W                  120
+#define     BTNS_H                  40
+#define     BTNS_W                  120
 
-#define         STATUS_READY            0
-#define         STATUS_INICOUNTING      1
-#define         STATUS_PAUSED           2
-#define         STATUS_RESUMECOUNTING   3
+#define     STATUS_READY            0
+#define     STATUS_INICOUNTING      1
+#define     STATUS_PAUSED           2
+#define     STATUS_RESUMECOUNTING   3
 
-#define         WM_RST_SORT             ( WM_USER + 0 )
+#define     WM_RST_ITEMS            ( WM_USER + 0 )
+
+// Board config
+#define     BRD_SIZE_SQ     10      // Board size in squares (logical units)
 
 typedef struct paramsTag
 {
@@ -32,6 +35,10 @@ LRESULT CALLBACK WndProc( HWND, UINT, WPARAM, LPARAM );
 LRESULT CALLBACK WndProcSort( HWND, UINT, WPARAM, LPARAM );
 
 void Thread( PVOID pvoid );
+
+void setUpMappingMode( HDC hdc, int cX, int cY );
+void drawGrid( HDC hdc );
+void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val );
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR szCmdLine, int iCmdShow )
@@ -110,7 +117,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
         // Create child win for sorting visualization
         hSortWnd = CreateWindow(
             TEXT( "SortWnd" ), NULL,
-            WS_CHILD | WS_BORDER | WS_VISIBLE,
+            WS_CHILD | WS_VISIBLE,
             0, 0, 0, 0, 
             hwnd, ( HMENU )ID_SORTWND,
             ( ( LPCREATESTRUCT )lParam )->hInstance, NULL) ;
@@ -224,7 +231,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
                 params.iStatus = STATUS_READY;
                 SetWindowText( hStrPauBtn, TEXT( "Start" ) );
 
-                SendMessage( params.hSortWnd, WM_RST_SORT, 0, 0 );
+                SendMessage( params.hSortWnd, WM_RST_ITEMS, 0, 0 );
             }
         }
         return 0;
@@ -244,11 +251,47 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
 LRESULT CALLBACK WndProcSort( HWND hwnd, UINT message,
     WPARAM wParam, LPARAM lParam )
 {
+    HDC hdc;
+    PAINTSTRUCT ps;
+    static int  cxClient, cyClient;
+    static HPEN redPen;
+    static HBRUSH redBrush;
+
     switch ( message )
     {
-    case WM_RST_SORT :
+    case WM_CREATE :
+        redPen = CreatePen( PS_SOLID, 0, RGB( 0xFF, 0x00, 0x00 ) );
+        redBrush = CreateSolidBrush( RGB( 0xFF, 0x00, 0x00 ) );
+        return 0;
 
+    case WM_SIZE :
+        cxClient = LOWORD( lParam );
+        cyClient = HIWORD( lParam );
+        return 0;
+
+    case WM_PAINT :
+        hdc = BeginPaint( hwnd, &ps );
+
+        setUpMappingMode( hdc, cxClient, cyClient );
+
+        // Draw test item
+        drawItem( hdc, redPen, redBrush, 5, 2 );
+
+        drawGrid( hdc );
+
+        EndPaint( hwnd, &ps );
+        return 0 ;
+
+    case WM_RST_ITEMS :
+        // Randomize items
+
+        // Redraw all items
         InvalidateRect( hwnd, NULL, TRUE );
+        return 0;
+
+    case WM_DESTROY :
+        DeleteObject( redPen );
+        DeleteObject( redBrush );
         return 0;
     }
 
@@ -266,4 +309,59 @@ void Thread( PVOID pvoid )
         WaitForSingleObject( pparams->hEvent, INFINITE );
 
     }
+}
+
+void setUpMappingMode( HDC hdc, int cX, int cY )
+{
+    // Set up mapping mode
+    SetMapMode( hdc, MM_ANISOTROPIC );
+
+    // Set up extents
+    SetWindowExtEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
+    SetViewportExtEx( hdc, cX - 1, -( cY - 1 ), NULL );
+
+    // Set up 'viewport' origin
+    SetViewportOrgEx( hdc, 0, cY - 1, NULL);
+}
+
+void drawGrid( HDC hdc )
+{
+    int i;
+
+    // Select black pen and black brush
+    SelectObject( hdc, GetStockObject( BLACK_PEN ) );
+    SelectObject( hdc, GetStockObject( BLACK_BRUSH ) );
+
+    // Vertical lines, left to right, bottom to top
+    for ( i = 0; i <= BRD_SIZE_SQ; i++ )
+    {
+        MoveToEx( hdc, i, 0, NULL );
+        LineTo( hdc, i, BRD_SIZE_SQ );
+    }
+
+    // Horizontal lines, bottom to top, left to right
+    for ( i = 0; i <= BRD_SIZE_SQ; i++ )
+    {
+        MoveToEx( hdc, 0, i, NULL );
+        LineTo( hdc, BRD_SIZE_SQ, i );
+    }
+
+    // Draw again right border from top to bottom
+    // so all corners of the grid are cover
+    MoveToEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
+    LineTo( hdc, BRD_SIZE_SQ, 0 );
+}
+
+void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val )
+{
+    // Validate args
+    pos = max( 0, min( pos, BRD_SIZE_SQ - 1 ) );
+    val = max( 1, min( val, BRD_SIZE_SQ ) );
+
+    // Select pen and brush
+    SelectObject( hdc, itemPen );
+    SelectObject( hdc, itemBrush );
+    
+    // Draw item
+    Rectangle( hdc, 0, pos + 1, val, pos );
 }

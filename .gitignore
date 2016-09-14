@@ -15,3 +15,4 @@ Debug/VisualSort.exe.intermediate.manifest
 Debug/VisualSort_manifest.rc
 Release/VisualSort.exe.intermediate.manifest
 VisualSort.opensdf
+*.cache
