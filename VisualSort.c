@@ -6,21 +6,26 @@
 #include <stdio.h>
 #include <process.h>
 
+// Child windows IDs
 #define     ID_SORTWND              0
 #define     ID_STRPAUBTN            1
 #define     ID_RSTBTN               2
 
+// Buttons size
 #define     BTNS_H                  40
 #define     BTNS_W                  120
 
+// Status IDs
 #define     STATUS_READY            0
 #define     STATUS_INICOUNTING      1
 #define     STATUS_PAUSED           2
 #define     STATUS_RESUMECOUNTING   3
 
-#define     WM_RST_ITEMS            ( WM_USER + 0 )
+// Proprietary messages
+#define     WM_ADDR_SET             ( WM_USER + 0 )
+#define     WM_RST_SET              ( WM_USER + 1 )
 
-// Board config
+// Board config and size of items set
 #define     BRD_SIZE_SQ     10      // Board size in squares (logical units)
 
 typedef struct paramsTag
@@ -37,8 +42,11 @@ LRESULT CALLBACK WndProcSort( HWND, UINT, WPARAM, LPARAM );
 void Thread( PVOID pvoid );
 
 void setUpMappingMode( HDC hdc, int cX, int cY );
-void drawGrid( HDC hdc );
+void fillSet( int* elemsSet );
+void shuffleSet( int* elemsSet );
 void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val );
+void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
+void drawGrid( HDC hdc );
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR szCmdLine, int iCmdShow )
@@ -97,6 +105,9 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
     static int cxClient, cyClient;
     WNDCLASS wndclass;
 
+    // Set of items to be sorted
+    static int itemsSet[ BRD_SIZE_SQ ] = { 0 };
+
     switch ( message )
     {
     case WM_CREATE :
@@ -138,8 +149,16 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
             hwnd, ( HMENU )ID_RSTBTN,
             ( ( LPCREATESTRUCT )lParam )->hInstance, NULL );
 
+        // Initialize set
+        fillSet( itemsSet );
+        shuffleSet( itemsSet );
+
+        // Pass address set address to visualization wnd
+        SendMessage( hSortWnd, WM_ADDR_SET, 0, ( LPARAM )itemsSet );
+
         // Set up worker thread's params
         params.hEvent = CreateEvent( NULL, FALSE, FALSE, NULL );
+        params.hSortWnd = hSortWnd;
         params.bContinue = FALSE;
         params.iStatus = STATUS_READY;
 
@@ -225,13 +244,14 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
              HIWORD( wParam ) == BN_CLICKED )
         {
             // Reset button pressed
-            if ( params.iStatus == STATUS_PAUSED )
+            if ( params.iStatus == STATUS_PAUSED ||
+                 params.iStatus == STATUS_READY )
             {
                 // From PAUSED to READY
                 params.iStatus = STATUS_READY;
                 SetWindowText( hStrPauBtn, TEXT( "Start" ) );
 
-                SendMessage( params.hSortWnd, WM_RST_ITEMS, 0, 0 );
+                SendMessage( params.hSortWnd, WM_RST_SET, 0, 0 );
             }
         }
         return 0;
@@ -256,6 +276,7 @@ LRESULT CALLBACK WndProcSort( HWND hwnd, UINT message,
     static int  cxClient, cyClient;
     static HPEN redPen;
     static HBRUSH redBrush;
+    static int* ptrItemsSet;
 
     switch ( message )
     {
@@ -269,27 +290,31 @@ LRESULT CALLBACK WndProcSort( HWND hwnd, UINT message,
         cyClient = HIWORD( lParam );
         return 0;
 
+    case WM_ADDR_SET :
+        // Store set address
+        ptrItemsSet = ( int* )lParam;
+        return 0;
+
     case WM_PAINT :
+        // Redraw set
         hdc = BeginPaint( hwnd, &ps );
-
         setUpMappingMode( hdc, cxClient, cyClient );
-
-        // Draw test item
-        drawItem( hdc, redPen, redBrush, 5, 2 );
-
+        drawSet( hdc, redPen, redBrush, ptrItemsSet );
         drawGrid( hdc );
-
         EndPaint( hwnd, &ps );
         return 0 ;
 
-    case WM_RST_ITEMS :
-        // Randomize items
+    case WM_RST_SET :
+        // Initialize set
+        fillSet( ptrItemsSet );
+        shuffleSet( ptrItemsSet );
 
-        // Redraw all items
+        // Redraw set
         InvalidateRect( hwnd, NULL, TRUE );
         return 0;
 
     case WM_DESTROY :
+        // Clean up
         DeleteObject( redPen );
         DeleteObject( redBrush );
         return 0;
@@ -318,10 +343,63 @@ void setUpMappingMode( HDC hdc, int cX, int cY )
 
     // Set up extents
     SetWindowExtEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
-    SetViewportExtEx( hdc, cX - 1, -( cY - 1 ), NULL );
+    SetViewportExtEx( hdc, cX - 1, cY - 1, NULL );
 
     // Set up 'viewport' origin
-    SetViewportOrgEx( hdc, 0, cY - 1, NULL);
+    SetViewportOrgEx( hdc, 0, 0, NULL);
+}
+
+void fillSet( int* elemsSet )
+{
+    int i = 0;
+
+    for ( i = 0; i < BRD_SIZE_SQ; i++ )
+    {
+        elemsSet[ i ] = i + 1;
+    }
+}
+
+void shuffleSet( int* elemsSet )
+{
+    int i = 0;      // current item
+    int j = 0;      // random chosen item
+    int tmp = 0;    // tmp value
+
+    // Iterate over all items
+    for ( i = 0; i < BRD_SIZE_SQ; i++ )
+    {
+        // Choose one item randomly
+        j = rand() % BRD_SIZE_SQ;
+        
+        // Swap current and chosen items
+        tmp = elemsSet[ i ];
+        elemsSet[ i ] = elemsSet[ j ];
+        elemsSet[ j ] = tmp;
+    }
+}
+
+void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet )
+{
+    int i = 0;
+
+    for ( i = 0; i < BRD_SIZE_SQ; i++ )
+    {
+        drawItem( hdc, itemPen, itemBrush, i, elemsSet[ i ] );
+    }
+}
+
+void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val )
+{
+    // Validate args
+    pos = max( 0, min( pos, BRD_SIZE_SQ - 1 ) );
+    val = max( 1, min( val, BRD_SIZE_SQ ) );
+
+    // Select pen and brush
+    SelectObject( hdc, itemPen );
+    SelectObject( hdc, itemBrush );
+    
+    // Draw item
+    Rectangle( hdc, 0, pos + 1, val, pos );
 }
 
 void drawGrid( HDC hdc )
@@ -350,18 +428,4 @@ void drawGrid( HDC hdc )
     // so all corners of the grid are cover
     MoveToEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
     LineTo( hdc, BRD_SIZE_SQ, 0 );
-}
-
-void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val )
-{
-    // Validate args
-    pos = max( 0, min( pos, BRD_SIZE_SQ - 1 ) );
-    val = max( 1, min( val, BRD_SIZE_SQ ) );
-
-    // Select pen and brush
-    SelectObject( hdc, itemPen );
-    SelectObject( hdc, itemBrush );
-    
-    // Draw item
-    Rectangle( hdc, 0, pos + 1, val, pos );
 }
