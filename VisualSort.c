@@ -28,7 +28,7 @@
 #define     WM_SORT_DONE            ( WM_USER + 2 )
 
 // Board config and size of items set
-#define     BRD_SIZE_SQ     1000      // Board size in squares (logical units)
+#define     BRD_SIZE_SQ     RAND_MAX + 1    // Board size in squares (logical units)
 
 typedef struct paramsTag
 {
@@ -40,19 +40,23 @@ typedef struct paramsTag
      int*   pElemsSet;
 } PARAMS, *PPARAMS;
 
-LRESULT CALLBACK WndProc( HWND, UINT, WPARAM, LPARAM );
+LRESULT CALLBACK WndProcMain( HWND, UINT, WPARAM, LPARAM );
 LRESULT CALLBACK WndProcSort( HWND, UINT, WPARAM, LPARAM );
 
 void Thread( PVOID pvoid );
 
-void setUpMappingMode( HDC hdc, int cX, int cY );
 void fillSet( int* elemsSet );
 void shuffleSet( int* elemsSet );
+void setUpMappingMode( HDC hdc, int cX, int cY );
 void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val );
+void deleteItem( HDC hdc, int pos, int val );
 void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
 void drawGrid( HDC hdc );
-void selectionSort( HWND hSortWnd, int* elemsSet );
-void swap( int* elemsSet, int i, int j );
+void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
+void swapItems( int* elemsSet, int i, int j );
+void swapBars( HWND hSortWnd, HPEN itemPen, HBRUSH itemBrush,
+    int* elemsSet, int i, int j );
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR szCmdLine, int iCmdShow )
@@ -63,7 +67,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     MSG          msg = { 0 };
 
     wndclass.style         = CS_HREDRAW | CS_VREDRAW;
-    wndclass.lpfnWndProc   = WndProc;
+    wndclass.lpfnWndProc   = WndProcMain;
     wndclass.cbClsExtra    = 0;
     wndclass.cbWndExtra    = 0;
     wndclass.hInstance     = hInstance;
@@ -103,7 +107,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     return msg.wParam;
 }
 
-LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
+LRESULT CALLBACK WndProcMain( HWND hwnd, UINT message,
     WPARAM wParam, LPARAM lParam )
 {
     static PARAMS params;
@@ -149,7 +153,7 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
         
         // Create 'Reset' button
         hRstBtn = CreateWindow(
-            TEXT( "button" ), TEXT( "Reset" ),
+            TEXT( "button" ), TEXT( "Shuffle" ),
             WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
             0, 0, 0, 0,
             hwnd, ( HMENU )ID_RSTBTN,
@@ -273,9 +277,6 @@ LRESULT CALLBACK WndProc( HWND hwnd, UINT message,
         params.bContinue = FALSE;
         EnableWindow( hRstBtn, TRUE );
         SetWindowText( hStrPauBtn, TEXT( "Start" ) );
-
-        // Show end results
-        InvalidateRect( hwnd, NULL, TRUE );
         return 0;
 
     case WM_DESTROY :
@@ -348,32 +349,30 @@ LRESULT CALLBACK WndProcSort( HWND hwnd, UINT message,
 void Thread( PVOID pvoid )
 {
     volatile PPARAMS pparams;
+    static HPEN redPen;
+    static HBRUSH redBrush;
 
     pparams = ( PPARAMS )pvoid;
+
+    redPen = CreatePen( PS_SOLID, 0, RGB( 0xFF, 0x00, 0x00 ) );
+    redBrush = CreateSolidBrush( RGB( 0xFF, 0x00, 0x00 ) );
 
     while ( TRUE )
     {
         WaitForSingleObject( pparams->hEvent, INFINITE );
 
         // Sort set
-        selectionSort( pparams->hSortWnd, pparams->pElemsSet );
+        selectionSort( pparams->hSortWnd, &( pparams->bContinue ),
+            pparams->iStatus, redPen, redBrush, pparams->pElemsSet );
 
         // Report sorting done
-        SendMessage( pparams->hMainWnd, WM_SORT_DONE, 0, 0 );
+        if ( pparams->bContinue == TRUE )
+            SendMessage( pparams->hMainWnd, WM_SORT_DONE, 0, 0 );
     }
-}
 
-void setUpMappingMode( HDC hdc, int cX, int cY )
-{
-    // Set up mapping mode
-    SetMapMode( hdc, MM_ANISOTROPIC );
-
-    // Set up extents
-    SetWindowExtEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
-    SetViewportExtEx( hdc, cX - 1, cY - 1, NULL );
-
-    // Set up 'viewport' origin
-    SetViewportOrgEx( hdc, 0, 0, NULL);
+    // Clean up
+    DeleteObject( redPen );
+    DeleteObject( redBrush );
 }
 
 void fillSet( int* elemsSet )
@@ -405,6 +404,19 @@ void shuffleSet( int* elemsSet )
     }
 }
 
+void setUpMappingMode( HDC hdc, int cX, int cY )
+{
+    // Set up mapping mode
+    SetMapMode( hdc, MM_ANISOTROPIC );
+
+    // Set up extents
+    SetWindowExtEx( hdc, BRD_SIZE_SQ, BRD_SIZE_SQ, NULL );
+    SetViewportExtEx( hdc, cX - 1, cY - 1, NULL );
+
+    // Set up 'viewport' origin
+    SetViewportOrgEx( hdc, 0, 0, NULL);
+}
+
 void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet )
 {
     int i = 0;
@@ -424,6 +436,20 @@ void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val )
     // Select pen and brush
     SelectObject( hdc, itemPen );
     SelectObject( hdc, itemBrush );
+    
+    // Draw item
+    Rectangle( hdc, 0, pos + 1, val, pos );
+}
+
+void deleteItem( HDC hdc, int pos, int val )
+{
+    // Validate args
+    pos = max( 0, min( pos, BRD_SIZE_SQ - 1 ) );
+    val = max( 1, min( val, BRD_SIZE_SQ ) );
+
+    // Select pen and brush
+    SelectObject( hdc, GetStockObject( WHITE_PEN ) );
+    SelectObject( hdc, GetStockObject( WHITE_BRUSH ) );
     
     // Draw item
     Rectangle( hdc, 0, pos + 1, val, pos );
@@ -457,35 +483,69 @@ void drawGrid( HDC hdc )
     LineTo( hdc, BRD_SIZE_SQ, 0 );
 }
 
-void selectionSort( HWND hSortWnd, int* elemsSet )
+void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* elemsSet )
 {
     int i, j;   // Set indices
     int sml;    // Smallest item found in current pass
+    static int lastI;
+
+    if ( iStatus == STATUS_INICOUNTING )
+        lastI = 0;
 
     // Loop over array size - 1 items
-    for ( i = 0; i < BRD_SIZE_SQ - 1; i++ )
+    for ( i = lastI; i < BRD_SIZE_SQ - 1 && (*pbContinue); i++ )
     {
         sml = i;    // Initialize smallest elem found
 
         // Loop over remaining array
-        for ( j = i + 1; j < BRD_SIZE_SQ; j++ )
+        for ( j = i + 1; j < BRD_SIZE_SQ && (*pbContinue); j++ )
         {
             if ( elemsSet[ j ] < elemsSet[ sml ] )
             {
                 sml = j;
             }
         }
+        
+        // Swap smallest and current analysed item on graphic
+        swapBars( hSortWnd, itemPen, itemBrush, elemsSet, i, sml );
 
-        // Swap smallest and current analysed item
-        swap( elemsSet, i, sml );
-
-        // Show current status ---> Must be improved to avoid flickering !!!!
-        InvalidateRect( hSortWnd, NULL, TRUE );
-        UpdateWindow( hSortWnd );
+        // Swap smallest and current analysed item on array
+        swapItems( elemsSet, i, sml );
     }
+
+    if ( (*pbContinue) == FALSE )
+        lastI = i;
 }
 
-void swap( int* elemsSet, int i, int j )
+void swapBars( HWND hSortWnd, HPEN itemPen, HBRUSH itemBrush,
+    int* elemsSet, int i, int j )
+{
+    HDC hdc;
+    RECT rcClientSortWnd;
+    static int cxSortWnd, cySortWnd;
+
+    // Get sort win client area size
+    GetClientRect( hSortWnd, &rcClientSortWnd );
+    cxSortWnd = rcClientSortWnd.right - rcClientSortWnd.left;
+    cySortWnd = rcClientSortWnd.bottom - rcClientSortWnd.top;
+
+    hdc = GetDC( hSortWnd );
+
+    setUpMappingMode( hdc, cxSortWnd, cySortWnd );
+
+    deleteItem( hdc, i, elemsSet[ i ] );
+
+    deleteItem( hdc, j, elemsSet[ j ] );
+
+    drawItem( hdc, itemPen, itemBrush, i, elemsSet[ j ] );
+
+    drawItem( hdc, itemPen, itemBrush, j, elemsSet[ i ] );
+
+    ReleaseDC( hSortWnd, hdc );
+}
+
+void swapItems( int* elemsSet, int i, int j )
 {
     int tmp = 0;
 
