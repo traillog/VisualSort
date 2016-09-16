@@ -28,7 +28,8 @@
 #define     WM_SORT_DONE            ( WM_USER + 2 )
 
 // Board config and size of items set
-#define     BRD_SIZE_SQ     RAND_MAX + 1    // Board size in squares (logical units)
+//#define     BRD_SIZE_SQ     RAND_MAX + 1    // Board size in squares (logical units)
+#define     BRD_SIZE_SQ     100    // Board size in squares (logical units)
 
 typedef struct paramsTag
 {
@@ -557,6 +558,8 @@ void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
 
         // Swap smallest and current analysed item on array
         swapItems( elemsSet, i, sml );
+
+        Sleep( 150 );
     }
 
     if ( (*pbContinue) == FALSE )
@@ -595,11 +598,15 @@ int partition( HWND hSortWnd, BOOL* pbContinue, int iStatus,
             swapBars( hSortWnd, itemPen, itemBrush, set, i, j );
             swapItems( set, i, j );
             i++;
+
+            Sleep( 50 );
         }
     }
 
     swapBars( hSortWnd, itemPen, itemBrush, set, i, h );
     swapItems( set, i, h );
+
+    Sleep( 50 );
 
     return i;
 }
