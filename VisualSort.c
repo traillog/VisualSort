@@ -52,11 +52,15 @@ void drawItem( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int pos, int val );
 void deleteItem( HDC hdc, int pos, int val );
 void drawSet( HDC hdc, HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
 void drawGrid( HDC hdc );
-void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
-    HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
 void swapItems( int* elemsSet, int i, int j );
 void swapBars( HWND hSortWnd, HPEN itemPen, HBRUSH itemBrush,
     int* elemsSet, int i, int j );
+void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* elemsSet );
+void quicksort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* set, int l, int h );
+int partition( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* set, int l, int h );
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
     PSTR szCmdLine, int iCmdShow )
@@ -361,9 +365,14 @@ void Thread( PVOID pvoid )
     {
         WaitForSingleObject( pparams->hEvent, INFINITE );
 
-        // Sort set
-        selectionSort( pparams->hSortWnd, &( pparams->bContinue ),
-            pparams->iStatus, redPen, redBrush, pparams->pElemsSet );
+        // Sort set, uncomment desired method
+
+        //selectionSort( pparams->hSortWnd, &( pparams->bContinue ),
+        //    pparams->iStatus, redPen, redBrush, pparams->pElemsSet );
+
+        quicksort( pparams->hSortWnd, &( pparams->bContinue ),
+            pparams->iStatus, redPen, redBrush,
+            pparams->pElemsSet, 0, BRD_SIZE_SQ - 1 );
 
         // Report sorting done
         if ( pparams->bContinue == TRUE )
@@ -483,6 +492,42 @@ void drawGrid( HDC hdc )
     LineTo( hdc, BRD_SIZE_SQ, 0 );
 }
 
+void swapBars( HWND hSortWnd, HPEN itemPen, HBRUSH itemBrush,
+    int* elemsSet, int i, int j )
+{
+    HDC hdc;
+    RECT rcClientSortWnd;
+    static int cxSortWnd, cySortWnd;
+
+    // Get sort win client area size
+    GetClientRect( hSortWnd, &rcClientSortWnd );
+    cxSortWnd = rcClientSortWnd.right - rcClientSortWnd.left;
+    cySortWnd = rcClientSortWnd.bottom - rcClientSortWnd.top;
+
+    hdc = GetDC( hSortWnd );
+
+    setUpMappingMode( hdc, cxSortWnd, cySortWnd );
+
+    deleteItem( hdc, i, elemsSet[ i ] );
+
+    deleteItem( hdc, j, elemsSet[ j ] );
+
+    drawItem( hdc, itemPen, itemBrush, i, elemsSet[ j ] );
+
+    drawItem( hdc, itemPen, itemBrush, j, elemsSet[ i ] );
+
+    ReleaseDC( hSortWnd, hdc );
+}
+
+void swapItems( int* elemsSet, int i, int j )
+{
+    int tmp = 0;
+
+    tmp = elemsSet[ i ];
+    elemsSet[ i ] = elemsSet[ j ];
+    elemsSet[ j ] = tmp;
+}
+
 void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
     HPEN itemPen, HBRUSH itemBrush, int* elemsSet )
 {
@@ -518,38 +563,43 @@ void selectionSort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
         lastI = i;
 }
 
-void swapBars( HWND hSortWnd, HPEN itemPen, HBRUSH itemBrush,
-    int* elemsSet, int i, int j )
+void quicksort( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* set, int l, int h )
 {
-    HDC hdc;
-    RECT rcClientSortWnd;
-    static int cxSortWnd, cySortWnd;
+    int p = 0;
 
-    // Get sort win client area size
-    GetClientRect( hSortWnd, &rcClientSortWnd );
-    cxSortWnd = rcClientSortWnd.right - rcClientSortWnd.left;
-    cySortWnd = rcClientSortWnd.bottom - rcClientSortWnd.top;
+    if ( l < h )
+    {
+        p = partition( hSortWnd, pbContinue, iStatus, itemPen, itemBrush,
+                set, l, h );
 
-    hdc = GetDC( hSortWnd );
-
-    setUpMappingMode( hdc, cxSortWnd, cySortWnd );
-
-    deleteItem( hdc, i, elemsSet[ i ] );
-
-    deleteItem( hdc, j, elemsSet[ j ] );
-
-    drawItem( hdc, itemPen, itemBrush, i, elemsSet[ j ] );
-
-    drawItem( hdc, itemPen, itemBrush, j, elemsSet[ i ] );
-
-    ReleaseDC( hSortWnd, hdc );
+        quicksort( hSortWnd, pbContinue, iStatus, itemPen, itemBrush,
+            set, l, p - 1 );
+        
+        quicksort( hSortWnd, pbContinue, iStatus, itemPen, itemBrush,
+            set, p + 1, h );
+    }
 }
 
-void swapItems( int* elemsSet, int i, int j )
+int partition( HWND hSortWnd, BOOL* pbContinue, int iStatus,
+    HPEN itemPen, HBRUSH itemBrush, int* set, int l, int h )
 {
-    int tmp = 0;
+    int pivot = set[ h ];
+    int i = l;
+    int j = l;
 
-    tmp = elemsSet[ i ];
-    elemsSet[ i ] = elemsSet[ j ];
-    elemsSet[ j ] = tmp;
+    for ( j = l; j < h; j++ )
+    {
+        if ( set[ j ] <= pivot )
+        {
+            swapBars( hSortWnd, itemPen, itemBrush, set, i, j );
+            swapItems( set, i, j );
+            i++;
+        }
+    }
+
+    swapBars( hSortWnd, itemPen, itemBrush, set, i, h );
+    swapItems( set, i, h );
+
+    return i;
 }
